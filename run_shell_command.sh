@@ -2,7 +2,7 @@
 
 # Script to setup and submit a SLURM job with custom job settings and user input.
 
-source /cfs/klemming/projects/snic/sllstore2017078/lech/RR/scAnalysis/SmoothR/inst/shell_helpers/helpers_shell.sh
+source /cfs/klemming/projects/snic/sllstore2017078/lech/RR/scAnalysis/scripts_chicken_repo/helpers_shell.sh
 
 # User email and compute account settings
 COMPUTE_ACCOUNT=${COMPUTE_ACCOUNT}  # Compute account variable
@@ -15,7 +15,6 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 unset TASKS JOB_TIME PARTITION CPUS NODES MEMORY DRY_RUN
 
 # Default values for job settings
-
 NODES="1"
 CPUS="1"
 NTASKS="1" 
@@ -29,7 +28,6 @@ function display_help() {
     echo "  -n [num_threads]"
     echo "  -t [job_time]"
     echo "  -p [core|node|shared|long|main|memory|devel]"
-    echo "  -h"
     echo "  -d [no|dry|with_eval]"
 }
 
@@ -109,8 +107,8 @@ fi
 
 # Color settings for output using tput
 color_key=$CYAN   # Blue color for keys
-color_value=$RED # Green color for values
-color_reset=$NC    # Reset to default terminal color
+color_value=$RED  # Green color for values
+color_reset=$NC   # Reset to default terminal color
 
 # Display settings
 # echo -e "Here are the current settings:"
@@ -240,7 +238,3 @@ if [[ $INTERACTIVE == 1 ]]; then
 fi
 
 remove_if_empty "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}"
-
-
-
-# echo -e "\033[?1000l"
