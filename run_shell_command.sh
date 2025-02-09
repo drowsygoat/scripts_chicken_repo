@@ -188,8 +188,7 @@ echo "Runtime: \$((runtime/3600)) hours and \$(((runtime%3600)/60)) minutes."
 EOF
 
 
-
-
+#this is addition!
 
 # echo -e "\nRunning:"
 echo ${BRIGHT_MAGENTA}
