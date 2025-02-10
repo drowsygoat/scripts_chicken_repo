@@ -15,82 +15,127 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 unset TASKS JOB_TIME PARTITION CPUS NODES MEMORY DRY_RUN
 
 # Default values for job settings
-NODES="1"
-CPUS="1"
-NTASKS="1" 
+JOB_NAME="noname_job"
+NTASKS=1
+NTASKS_PER_NODE=1
 PARTITION="shared"
+NODES=1
 INTERACTIVE=0
+CPUS=1
+DRY_RUN=0
 
-function display_help() {
-    echo "Usage: $(basename $0) [options] -- [command]"
+# Function to display help
+function show_help() {
+    echo ""
+    echo "Usage: run_shell_command.sh [options] -- '[command]'"
+    echo ""
     echo "Options:"
-    echo "  -J [job_name]"
-    echo "  -n [num_threads]"
-    echo "  -t [job_time]"
-    echo "  -p [core|node|shared|long|main|memory|devel]"
-    echo "  -d [no|dry|with_eval]"
+    echo "  -J, --job-name         Set the job name"
+    echo "  -n, --ntasks           Number of tasks"
+    echo "  -m, --ntasks-per-node  Number of tasks per node"
+    echo "  -t, --time             Job time in D-HH:MM:SS format"
+    echo "  -p, --partition        Partition to run the job"
+    echo "  -N, --nodes            Number of nodes"
+    echo "  -i, --interactive      Run in interactive mode"
+    echo "  -c, --cpu              Number of CPUs"
+    echo "  -M, --memory           Memory allocation"
+    echo "  -o, --modules          Modules to load"
+    echo "  -a, --array            Job array specification"
+    echo "  -d, --dry-run          Enable dry run mode"
+    echo "  -h, --help             Show this help message"
+    exit 0
 }
 
-# Add this at the beginning of your getopts loop
 if [ $# -eq 0 ]; then
     echo "No arguments provided. Displaying help:"
     # Call a function to display help
-    display_help
+    show_help
     exit 1
 fi
 
-# Parse command-line options using getopts
-while getopts "J:n:t:p:N:m:a:ic:d:o:" opt; do
-  case ${opt} in
-    J )
-      JOB_NAME=${OPTARG} 
-      ;;
-    n )
-      NTASKS=${OPTARG}  
-      ;;
-    m )
-      NTASKS_PER_NODE=${OPTARG}  
-      ;;
-    t )
-      JOB_TIME=${OPTARG}  
-      ;;
-    p )
-      PARTITION=${OPTARG}  
-      ;;
-    N )
-      NODES=${OPTARG}  
-      ;;
-    i )
-      INTERACTIVE=1  
-      ;;
-    c )
-      CPUS=${OPTARG}
-      ;;
-    m )
-      MEMORY=${OPTARG}  
-      ;;
-    o )
-      MODULES=${OPTARG}  
-      ;;
-    a )
-      JOB_ARRAY=${OPTARG}  
-      ;;
-    d )
-      DRY_RUN=${OPTARG}  
-      ;;
-    \? )
-      echo "Invalid option: $OPTARG" 1>&2
-      exit 1
-      ;;
-    : )
-      echo "Invalid option: $OPTARG requires an argument" 1>&2
-      exit 1
-      ;;
-  esac
+# Parse command-line options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -J|--job-name)
+            JOB_NAME="$2"
+            shift 2
+            ;;
+        -n|--ntasks)
+            NTASKS="$2"
+            shift 2
+            ;;
+        -m|--ntasks-per-node)
+            NTASKS_PER_NODE="$2"
+            shift 2
+            ;;
+        -t|--time)
+            JOB_TIME="$2"
+            shift 2
+            ;;
+        -p|--partition)
+            PARTITION="$2"
+            shift 2
+            ;;
+        -N|--nodes)
+            NODES="$2"
+            shift 2
+            ;;
+        -i|--interactive)
+            INTERACTIVE=1
+            shift
+            ;;
+        -c|--cpu)
+            CPUS="$2"
+            shift 2
+            ;;
+        -M|--memory)
+            MEMORY="$2"
+            shift 2
+            ;;
+        -o|--modules)
+            MODULES="$2"
+            shift 2
+            ;;
+        -a|--array)
+            JOB_ARRAY="$2"
+            shift 2
+            ;;
+        -d|--dry-run)
+            DRY_RUN="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Invalid option: $1" 1>&2
+            show_help
+            ;;
+    esac
 done
 
-# Shift off the options and optional --
-shift $((OPTIND -1))
+# Display parsed options (for debugging purposes)
+# echo "Job Name: $JOB_NAME"
+# echo "Number of Tasks: $NTASKS"
+# echo "Tasks per Node: $NTASKS_PER_NODE"
+# echo "Job Time: $JOB_TIME"
+# echo "Partition: $PARTITION"
+# echo "Nodes: $NODES"
+# echo "Interactive Mode: $INTERACTIVE"
+# echo "CPUs: $CPUS"
+# echo "Memory: $MEMORY"
+# echo "Modules: $MODULES"
+# echo "Job Array: $JOB_ARRAY"
+# echo "Dry Run: $DRY_RUN"
+
+# Example of using parsed options (modify as needed)
+if [[ $DRY_RUN -eq 1 ]]; then
+    echo "Dry run mode enabled. No actual job submission will occur."
+fi
 
 # Remaining arguments are treated as the command to run
 ARGUMENTS="$@"
@@ -120,10 +165,29 @@ echo -e "${color_key}Job time: ${color_value}$JOB_TIME${color_reset}"
 echo -e "${color_key}Partition: ${color_value}$PARTITION${color_reset}"
 echo -e "${color_key}E-mail: ${color_value}$USER_E_MAIL${color_reset}"
 echo -e "${color_key}Account: ${color_value}$COMPUTE_ACCOUNT${color_reset}"
-if [[ ! -n "${DRY_RUN:-}" ]]; then
-    echo -e "${color_key}Dry run: ${color_value}No${color_reset}"
+
+if [ -n "${DRY_RUN:-}" ]; then
+    echo -e "${color_key}Dry run: ${color_value}Yes${color_reset}"
 else
-    echo -e "${color_key}Dry run: ${color_value}$DRY_RUN${color_reset}"
+    echo -e "${color_key}Dry run: ${color_value}No${color_reset}"
+fi
+
+if [ -n "${MEMORY:-}" ]; then
+    echo -e "${color_key}Memory allocation: ${color_value}$MEMORY${color_reset}"
+else
+    echo -e "${color_key}Memory allocation: ${color_value}Not specified${color_reset}"
+fi
+
+if [ -n "${JOB_ARRAY:-}" ]; then
+    echo -e "${color_key}Job array: ${color_value}$JOB_ARRAY${color_reset}"
+else
+    echo -e "${color_key}Job array: ${color_value}Not specified${color_reset}"
+fi
+
+if [ -n "${NTASKS_PER_NODE:-}" ]; then
+    echo -e "${color_key}Tasks per node: ${color_value}$NTASKS_PER_NODE${color_reset}"
+else
+    echo -e "${color_key}Tasks per node: ${color_value}Not specified${color_reset}"
 fi
 
 
@@ -135,8 +199,7 @@ if [[ $DRY_RUN == "dry" ]]; then
   echo -e "$ARGUMENTS" 
   exit 0
 elif [[ $DRY_RUN == "with_eval" ]]; then
-  echo -e "Evaluating:" 
-  echo -e "$ARGUMENTS"
+  echo -e "\nEvaluating: $ARGUMENTS" 
   echo -e "Loading modules"
   load_modules
   echo "Check... OK"
@@ -147,7 +210,6 @@ fi
 
 # Prepare the directory and SLURM script for the job
 mkdir -p ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}
-
 
 # creating script file
 cat <<EOF > "$SBATCH_SCRIPT"
@@ -187,12 +249,11 @@ runtime=\$((end-start))
 echo "Runtime: \$((runtime/3600)) hours and \$(((runtime%3600)/60)) minutes."
 EOF
 
-
-#this is addition!
-
+# Log the expanded command
+expanded_command=$(eval echo "$ARGUMENTS")
 # echo -e "\nRunning:"
 echo ${BRIGHT_MAGENTA}
-echo -e "$ARGUMENTS" | tee ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/command.log
+echo -e "$expanded_command" | tee "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/command.log"
 echo ${NC}
 
 if [[ $INTERACTIVE == 1 ]]; then
