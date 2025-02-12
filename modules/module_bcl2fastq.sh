@@ -36,7 +36,6 @@ process_file() {
     local sample_sheet=$3
     local base_mask=$4
 
-
     echo "BCL dir: $input"
     echo "fastq dir: $output"
     echo "Sample sheet: $sample_sheet"

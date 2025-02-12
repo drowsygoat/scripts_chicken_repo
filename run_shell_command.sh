@@ -14,7 +14,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Clear any previous settings for these variables
 unset TASKS JOB_TIME PARTITION CPUS NODES MEMORY DRY_RUN
 
-# Default values for job settings
+# Default values for job settings  
 JOB_NAME="noname_job"
 NTASKS=1
 NTASKS_PER_NODE=1
