@@ -2,7 +2,7 @@
 
 # Script to setup and submit a SLURM job with custom job settings and user input.
 
-source /cfs/klemming/projects/snic/sllstore2017078/lech/RR/scAnalysis/scripts_chicken_repo/helpers_shell.sh
+source /cfs/klemming/projects/snic/sllstore2017078/kaczma-workingdir/RR/scAnalysis/scripts_chicken_repo/helpers_shell.sh
 
 # User email and compute account settings
 COMPUTE_ACCOUNT=${COMPUTE_ACCOUNT}  # Compute account variable
@@ -15,16 +15,15 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 unset TASKS JOB_TIME PARTITION CPUS NODES MEMORY DRY_RUN
 
 # Default values for job settings  
-JOB_NAME="noname_job"
+JOB_NAME="unnamed_job"
 NTASKS=1
 NTASKS_PER_NODE=1
 PARTITION="shared"
 NODES=1
 INTERACTIVE=0
 CPUS=1
-DRY_RUN=0
+DRY_RUN="slurm"
 
-# Function to display help
 function show_help() {
     echo ""
     echo "Usage: run_shell_command.sh [options] -- '[command]'"
@@ -33,28 +32,32 @@ function show_help() {
     echo "  -J, --job-name         Specify the job name (string)"
     echo "  -n, --ntasks           Set the number of tasks (integer)"
     echo "  -m, --ntasks-per-node  Set the number of tasks per node (integer)"
-    echo "  -t, --time             Specify the job time in [D-HH:MM:SS] format"
+    echo "  -t, --time             Specify the job time"
+    echo "                         - Format: [D-HH:MM:SS] (e.g., 1-12:30:00 for 1 day, 12 hours, 30 minutes)"
+    echo "                         - If given as an integer (e.g., 5), it is treated as hours and converted"
+    echo "                           (e.g., '5' → '0-05:00:00', '30' → '1-06:00:00')"
     echo "  -p, --partition        Partition to run the job on (string)"
     echo "                         Options: core, node, shared, long, main, memory, devel"
     echo "  -N, --nodes            Specify the number of nodes (integer)"
     echo "  -i, --interactive      Run the job in interactive mode (no arguments)"
-    echo "  -c, --cpu              Specify the number of CPUs (integer)"
+    echo "  -c, --cpus              Specify the number of CPUs (integer)"
     echo "  -M, --memory           Set the memory allocation for SLURM (e.g., 8G, 32G)"
     echo "  -o, --modules          List of modules to load (comma-separated, e.g., 'python,gcc')"
     echo "  -a, --array            Define job array specification (e.g., '1-10%2')"
     echo "  -d, --dry-run          Enable dry run mode"
-    echo "                         Options: dry, with_eval, no"
+    echo "                         Options: dry, with_eval, slurm"
     echo "  -h, --help             Display this help message and exit"
     echo ""
     echo "Notes:"
     echo "  - The '[command]' should be enclosed in quotes and placed after '--'."
     echo "  - Dry run options:"
     echo "      dry       : Prints the command without executing it."
-    echo "      with_eval : Prints and evaluates the command."
-    echo "      no        : Executes the command without printing."
+    echo "      with_eval : Executes the command in current shell."
+    echo "      slurm     : Executes the command with slurm."
     echo ""
     exit 0
 }
+
 
 if [ $# -eq 0 ]; then
     echo "No arguments provided. Displaying help:"
@@ -94,7 +97,7 @@ while [[ $# -gt 0 ]]; do
             INTERACTIVE=1
             shift
             ;;
-        -c|--cpu)
+        -c|--cpus)
             CPUS="$2"
             shift 2
             ;;
@@ -142,11 +145,6 @@ done
 # echo "Job Array: $JOB_ARRAY"
 # echo "Dry Run: $DRY_RUN"
 
-# Example of using parsed options (modify as needed)
-if [[ $DRY_RUN -eq 1 ]]; then
-    echo "Dry run mode enabled. No actual job submission will occur."
-fi
-
 # Remaining arguments are treated as the command to run
 ARGUMENTS="$@"
 
@@ -158,6 +156,28 @@ if [[ $PARTITION =~ (core|node|shared|long|main|memory|devel) ]]; then
     JOB_TIME=${JOB_TIME:-23:59:00}
 else 
     JOB_TIME=${JOB_TIME:-00:10:00} 
+fi
+
+# Set default job time based on the partition
+if [[ $PARTITION =~ (core|node|shared|long|main|memory|devel) ]]; then
+    JOB_TIME=${JOB_TIME:-23:59:00}
+else 
+    JOB_TIME=${JOB_TIME:-00:10:00} 
+fi
+
+# Function to check if JOB_TIME is in d-HH:MM:SS format
+is_valid_format() {
+    [[ "$1" =~ ^([0-9]+-)?([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]]
+}
+
+# If JOB_TIME is an integer, treat it as hours and convert to d-HH:MM:SS
+if [[ "$JOB_TIME" =~ ^[0-9]+$ ]]; then
+    HRS=$((JOB_TIME % 24))  # Extract hours
+    DAYS=$((JOB_TIME / 24))  # Extract days
+    JOB_TIME=$(printf "%d-%02d:00:00" "$DAYS" "$HRS")
+elif ! is_valid_format "$JOB_TIME"; then
+    echo "Error: Invalid JOB_TIME format ($JOB_TIME)" >&2
+    exit 1
 fi
 
 # Color settings for output using tput
@@ -175,12 +195,7 @@ echo -e "${color_key}Job time: ${color_value}$JOB_TIME${color_reset}"
 echo -e "${color_key}Partition: ${color_value}$PARTITION${color_reset}"
 echo -e "${color_key}E-mail: ${color_value}$USER_E_MAIL${color_reset}"
 echo -e "${color_key}Account: ${color_value}$COMPUTE_ACCOUNT${color_reset}"
-
-if [ -n "${DRY_RUN:-}" ]; then
-    echo -e "${color_key}Dry run: ${color_value}Yes${color_reset}"
-else
-    echo -e "${color_key}Dry run: ${color_value}No${color_reset}"
-fi
+echo -e "${color_key}Run: ${color_value}$DRY_RUN${color_reset}"
 
 if [ -n "${MEMORY:-}" ]; then
     echo -e "${color_key}Memory allocation: ${color_value}$MEMORY${color_reset}"
@@ -199,7 +214,6 @@ if [ -n "${NTASKS_PER_NODE:-}" ]; then
 else
     echo -e "${color_key}Tasks per node: ${color_value}Not specified${color_reset}"
 fi
-
 
 SBATCH_SCRIPT="${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/${JOB_NAME}_${TIMESTAMP}.sh"
 
