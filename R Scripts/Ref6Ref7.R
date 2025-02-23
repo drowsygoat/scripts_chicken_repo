@@ -7,72 +7,77 @@ library("ggplot2")
 library("dplyr")
 library("ggbeeswarm")
 library("stringr")
-###############Load all Files in.
-
 
 ##############################################
 #####################GAL7#####################
 ##############################################
-bc_metric_files <- list.files("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/Rworkdir/Gal7", pattern = "bar", full.names = T)
+bc7_metric_files <- list.files("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/Rworkdir/Gal7", pattern = "bar", full.names = T)
 k <- list()
-for (i in seq(bc_metric_files)){id <- str_extract(bc_metric_files[i], "per_barcode_metrics\\d+") 
-id <- paste0("ID_", gsub("per_barcode_metrics", "", be_metric_files))
-#id <- paste0("ID_", gsub("per_barcode_metrics", "", bc_metric_files[i]))
-k[[i]] <- read.csv(bc_metric_files[i])     
-k[[i]]$sample <- id}
+for (i in seq(bc7_metric_files)){id7 <- str_extract(bc7_metric_files[i], "per_barcode_metrics\\d+") 
+  id7 <- paste0("ID_", gsub("per_barcode_metrics", "", id7))
+k[[i]] <- read.csv(bc7_metric_files[i])     
+k[[i]]$sample <- id7}
 bc7_metrics_combined <- as_tibble(base::do.call("rbind",k))
 bc7_metrics <- bc7_metrics_combined %>% filter(is_cell == 1) %>% filter(atac_raw_reads > 10000) %>% filter(atac_raw_reads < 50000)
-#bc7_metrics$excluded_reason <- NULLbc_metrics$is_cell <- NULLbc_metrics <- bc_metrics %>% select(last_col(),everything())
 head(bc7_metrics)
 colnames(bc7_metrics)
 print(bc7_metrics$sample)
 ####################################
 ####################################
-plotA7 <- ggplot(bc7_metrics, aes(x=sample, y=atac_TSS_fragments)) + 
+FNplotA7 <- ggplot(bc7_metrics, aes(x=sample, y=atac_TSS_fragments)) + 
   geom_quasirandom(dodge.width = 0.9, varwidth = TRUE, size = 1, show.legend = F, color = "black") +
   geom_violin(position = position_dodge(width = 0.5), alpha = 0.8, draw_quantiles = c(0.25,0.5,0.75), trim = TRUE, scale = "width", na.rm = FALSE, orientation = NA, show.legend = NA, inherit.aes = TRUE, linewidth = 0.1) +
     geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.5), lwd = 0.6, fatten = 0.4, alpha = 0.7) +
     theme_grey(base_size = 10) + theme(axis.text.x = element_text(angle = 70, vjust = 0.5)) 
-ggsave("plotA7.jpeg")
+ggsave("FNplotA7.jpeg")
+getwd()
 
 ##############################################
 #####################GAL6#####################
 ##############################################
-bc_metric_files <- list.files("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/Rworkdir/Gal6", pattern = "bar", full.names = T)
+bc6_metric_files <- list.files("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/Rworkdir/Gal6", pattern = "bar", full.names = T)
 k <- list()
-for (i in seq(bc_metric_files)){id <- str_extract(bc_metric_files[i], "per_barcode_metrics\\d+")    
-k[[i]] <- read.csv(bc_metric_files[i])     
-k[[i]]$sample <- id}
-bc_metrics_combined <- as_tibble(base::do.call("rbind",k))
-bc_metrics_combined
-bc_metrics <- bc_metrics_combined %>% filter(is_cell == 1) %>% filter(atac_raw_reads > 10000) %>% filter(atac_raw_reads < 50000)
-bc_metrics$excluded_reason <- NULLbc_metrics$is_cell <- NULLbc_metrics <- bc_metrics %>% select(last_col(),everything())
-head(bc_metrics)
-colnames(bc_metrics)
-print(bc_metrics$sample)
+for (i in seq(bc6_metric_files)){id6 <- str_extract(bc6_metric_files[i], "per_barcode_metrics\\d+")
+  id6 <- paste0("ID_", gsub("per_barcode_metrics", "", id6))
+k[[i]] <- read.csv(bc6_metric_files[i])     
+k[[i]]$sample <- id6}
+bc6_metrics_combined <- as_tibble(base::do.call("rbind",k))
+bc6_metrics <- bc6_metrics_combined %>% filter(is_cell == 1) %>% filter(atac_raw_reads > 10000) %>% filter(atac_raw_reads < 50000) ##Don't trim the ATAC_TSS_FRAGS, instead to this so all TSS_FRAGS are in!
+head(bc6_metrics)
+colnames(bc6_metrics)
+print(bc6_metrics$sample)
 ####################################
 ####################################
-NplotA6 <- ggplot(bc_metrics, aes(x=sample, y=atac_TSS_fragments)) + 
+FNplotA6 <- ggplot(bc6_metrics, aes(x=sample, y=atac_TSS_fragments)) + 
   geom_quasirandom(dodge.width = 0.9, varwidth = TRUE, size = 1, show.legend = F, color = "black") +
   geom_violin(position = position_dodge(width = 0.5), alpha = 0.8, draw_quantiles = c(0.25,0.5,0.75), trim = TRUE, scale = "width", na.rm = FALSE, orientation = NA, show.legend = NA, inherit.aes = TRUE, linewidth = 0.1) +
     geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.5), lwd = 0.6, fatten = 0.4, alpha = 0.7) +
     theme_grey(base_size = 10) + theme(axis.text.x = element_text(angle = 70, vjust = 0.5)) 
-ggsave("NplotA6.jpeg")
+ggsave("FNplotA6.jpeg")
+getwd()
 
 ##############################################
 #################GAL6 & GAL7##################
 ##############################################
-Metrics6a <- bc_metrics %>% mutate(type = 'ref6')
-colnames(Metrics6a)
-tail(Metrics6a$type)
+Metrics6a <- bc6_metrics %>% mutate(type = 'ref6')
 Metrics7a <- bc7_metrics %>% mutate(type = 'ref7')
 ComboMetrics <- bind_rows(Metrics6a, Metrics7a)
 
-NComboplotATACFRAGS <- ggplot(ComboMetrics, aes(x=sample, y=atac_TSS_fragments, color = type)) + 
-  geom_quasirandom(dodge.width = 0.9, varwidth = TRUE, size = 1, show.legend = F, color = "black") +
-  geom_violin(position = position_dodge(width = 0.5), alpha = 0.8, draw_quantiles = c(0.25,0.5,0.75), trim = TRUE, scale = "width", na.rm = FALSE, orientation = NA, show.legend = NA, inherit.aes = TRUE, linewidth = 0.1) +
-    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.5), lwd = 0.6, fatten = 0.4, alpha = 0.7) +
-    theme_grey(base_size = 10) + theme(axis.text.x = element_text(angle = 70, vjust = 0.5))
-ggsave("NComboplotATACFRAGS.jpeg")
+FNComboMetricsFILL <- ggplot(ComboMetrics, aes(x=sample, y=atac_TSS_fragments, fill = type)) + 
+  geom_quasirandom(alpha = 0.3, dodge.width = 0.9, varwidth = TRUE, size = 0.3, show.legend = F, color = "black") +
+  geom_violin(position = position_dodge(width = 0.9), alpha = 0.3, draw_quantiles = c(0.25,0.5,0.75), trim = TRUE, scale = "width", na.rm = FALSE, orientation = NA, show.legend = NA, inherit.aes = TRUE, linewidth = 0.1) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.9), lwd = 0.6, fatten = 0.2, alpha = 0.5) +
+    theme_grey(base_size = 5) + theme(axis.text.x = element_text(angle = 70, vjust = 0.5)) +
+    labs(title = "Ref6 vs Ref7 in TSS_fragments", color = "Sample Type") +  # Adding title and legend label
+    theme_grey(base_size = 5) +
+  theme(
+    axis.text.x = element_text(angle = 70, vjust = 0.7, size = 9),  # Adjust size of x-axis tick labels
+    axis.text.y = element_text(size = 10),  # Adjust size of y-axis tick labels
+    axis.title.x = element_text(size = 14),  # Increase x-axis title size
+    axis.title.y = element_text(size = 14),  # Increase y-axis title size
+    plot.title = element_text(size = 16, hjust = 0.5)  # Increase title size and center it
+  )
+ggsave("FNComboMetricsFILL.jpeg", height = 10, width =18)
+getwd()
 ####################################
 #################################END
