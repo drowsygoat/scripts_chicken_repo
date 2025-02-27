@@ -32,7 +32,6 @@ process_file() {
      echo "Sample: ${samples[((SLURM_ARRAY_TASK_ID-1))]}"'
 }
 
-
 SAMPLES=({1..10})
 
 batch_number=1

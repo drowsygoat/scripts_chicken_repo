@@ -1,70 +1,67 @@
 # Function to find a unique file based on a pattern in specified directories
 function find_module_file() {
     local file_pattern=$1
+    shift  # Remove the pattern argument from $@
     local search_dirs=("$@")
-    local file
-    local found_files
-    local files_array
+    local files_array=()
 
-    for dir in "${search_dirs[@]:1}"; do
-        # Search for files matching the pattern in the specified directory, non-recursively
-        found_files=$(find "$dir" -maxdepth 1 -type f -regex "$file_pattern")
+    # Iterate through each directory
+    for dir in "${search_dirs[@]}"; do
+        # Search for files matching the pattern in the directory (non-recursively)
+        mapfile -t files_array < <(find "$dir" -maxdepth 1 -type f -regex "$file_pattern")
 
-        # Convert search results to an array
-        IFS=$'\n' read -r -d '' -a files_array <<< "$found_files"
-
-        # Check if exactly one unique file is found
-        if [ "${#files_array[@]}" -eq 1 ]; then
-            file="${files_array[0]}"
-            echo "$file"
+        if [[ ${#files_array[@]} -eq 1 ]]; then
+            echo "${files_array[0]}"
             return 0
         fi
     done
 
-    # If no unique file is found
-    echo "Error: No unique $file_pattern file found or multiple files present in the specified directories."
+    # Handle no or multiple matching files
+    if [[ ${#files_array[@]} -eq 0 ]]; then
+        echo "Error: No file matching '$file_pattern' found." >&2
+    else
+        echo "Error: Multiple files matching '$file_pattern' found." >&2
+    fi
     return 1
 }
 
+# Function to get the path of a unique module file
 function get_module_file_path() {
     local file_pattern=".*temp_modules.*"
     local search_dirs=("$PWD" "$HOME")
     local found_files=()
 
     for dir in "${search_dirs[@]}"; do
-        # echo "Searching in directory: $dir"  # Debug: Show which directory is being searched
-        
-        # Capture the output of the find command
-        while IFS= read -r file; do
-            # echo "Found file: $file"  # Debug: Show each found file
-            found_files+=("$file")
-        done < <(find "$dir" -maxdepth 1 -type f -regex "$file_pattern")
+        mapfile -t found_files < <(find "$dir" -maxdepth 1 -type f -regex "$file_pattern")
 
-        # Check if exactly one unique file is found
-        if [ "${#found_files[@]}" -eq 1 ]; then
-            echo "${found_files[@]}"
+        if [[ ${#found_files[@]} -eq 1 ]]; then
+            echo "${found_files[0]}"
             return 0
-        elif [ "${#found_files[@]}" -gt 1 ]; then
-            echo "Multiple files found, please refine your search criteria."
+            
+        elif [[ ${#found_files[@]} -gt 1 ]]; then
+            echo "Error: Multiple files found matching '$file_pattern'. Please refine your search." >&2
             return 1
         fi
     done
 
-    echo "Error: No unique $file_pattern file found or multiple files present in the specified directories." >&2
+    echo "Error: No matching file found in specified directories." >&2
     return 1
 }
 
+# Function to print the current job status
 function print_job_status() {
-    current_status=$(sacct --brief --jobs $JOB_ID | awk -v job_id="$JOB_ID" '$1 == job_id {print $1, $2}')
+    local current_status
+    current_status=$(sacct --brief --jobs "$JOB_ID" | awk -v job_id="$JOB_ID" '$1 == job_id {print $1, $2}')
+
     if [[ "$last_status" != "$current_status" ]]; then
         echo ""
-        echo -n "Monitoring job status for Job ID: $current_status"
+        echo "Monitoring job status for Job ID: $JOB_ID"
+        echo "Current status: $current_status"
         last_status="$current_status"
     else
         echo -n "."
     fi
 }
-
 
 function is_job_active() {
     local active_jobs=$(sacct --jobs $JOB_ID | grep -E "RUNNING|PENDING" | wc -l)
@@ -76,96 +73,84 @@ function is_completed() {
     return $(( completed_jobs == 0 ))
 }
 
-
+# Function to handle interactive job monitoring
 function interactive_mode() {
     tput setaf 3
-    echo -e "Job ID $JOB_ID submitted at $TIMESTAMP.\nPress 'c' at any time to cancel.\nPress 'q' at any time to stop monitoring.\nCancelling will discard the log files."
-    tput sgr 0
+    echo -e "Job ID $JOB_ID submitted at $TIMESTAMP."
+    echo -e "Press 'c' to cancel the job or 'q' to stop monitoring."
+    tput sgr0
 
+    local input
     read -t 5 -n 1 input
-    if [[ $input = "c" ]]; then
-        # User pressed 'c', cancel the job using scancel
-        scancel $JOB_ID
-        rm -rf ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}
-        tput setaf 1
-        echo ""
-        echo "Operation canceled by the user."
-        tput sgr 0
-        exit 1
-    else
-        unset input
+    if [[ $input == "c" ]]; then
+        cancel_job
     fi
 
-    # Monitor job status until completion
     last_status="init"
     while is_job_active; do
-        print_job_status # Poll every -t seconds
+        print_job_status
         read -t 5 -n 1 -s input
-        if [[ $input = "c" ]]; then
-            # User pressed 'c', cancel the job using scancel
-            scancel $JOB_ID
-            rm -rf ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}
-            tput setaf 1
-            echo ""
-            echo "Operation canceled by the user."
-            tput sgr 0
-            exit 1
-        elif [[ $input = "q" ]]; then
-            # User pressed 'q', exit with status 0
-            tput setaf 1
-            echo ""
-            echo "Monitoring stopped by the user."
-            tput sgr 0
-            exit 0
-        else
-            unset input
+        if [[ $input == "c" ]]; then
+            cancel_job
+        elif [[ $input == "q" ]]; then
+            stop_monitoring
         fi
     done
 
-    # Final job status and statistics
     echo ""
     echo "Job $JOB_ID has finished. Fetching final statistics..."
-    echo ""
-
-    sacct --format=elapsed,jobname,reqcpus,reqmem,state -j $JOB_ID
-
+    sacct --format=elapsed,jobname,reqcpus,reqmem,state -j "$JOB_ID"
     echo -e "Job completed.\n"
 }
 
+# Helper function to cancel the job
+function cancel_job() {
+    scancel "$JOB_ID"
+    rm -rf "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}"
+    tput setaf 1
+    echo -e "\nOperation canceled by the user."
+    tput sgr0
+    exit 1
+}
 
-# Function to remove directory if it is empty
+# Helper function to stop monitoring
+function stop_monitoring() {
+    tput setaf 1
+    echo -e "\nMonitoring stopped by the user."
+    tput sgr0
+    exit 0
+}
+
+# Function to remove a directory if it's empty
 function remove_if_empty() {
     local dir=$1
 
-    # Check if directory exists
     if [[ -d "$dir" ]]; then
-        # Check if directory is empty
         if [[ -z "$(ls -A "$dir")" ]]; then
-            # Remove the directory forcefully
             rmdir "$dir" && echo "Directory '$dir' was empty and has been removed."
+        else
+            echo "Directory '$dir' is not empty."
         fi
+    else
+        echo "Directory '$dir' does not exist."
     fi
 }
 
-# Function to perform countdown before starting a job
+# Function to perform a countdown before starting a job
 function countdown() {
     local duration=$1
-
     echo -n "Job will start in "
 
-    # Countdown loop
-    for ((i=duration; i>0; i--)); do
+    for ((i = duration; i > 0; i--)); do
         echo -n "$i... "
-        read -t 1 -n 1 -s -r response
-        if [ $? = 0 ]; then
-            # If the user presses a key, exit with a message
+        read -t 1 -n 1 -s response
+        if [[ $? -eq 0 ]]; then
             echo -e "\nOperation canceled by the user."
             exit 1
         fi
     done
     echo -e "\nJob is starting now..."
 }
-
 
 # Function to load modules
 function load_modules() {

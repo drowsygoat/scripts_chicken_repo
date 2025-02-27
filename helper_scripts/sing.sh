@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Load singularity module
-ml singularity
+ml PDC singularity
 
 # Default local and container base paths
-LOCAL_BASE_PATH="/cfs/klemming/projects/snic/sllstore2017078/kaczma-workingdir"
+LOCAL_BASE_PATH="/cfs/klemming/projects/snic/sllstore2017078/${USER}-workingdir"
 CONTAINER_BASE_PATH="/mnt"
-SANDBOXES_PATH="/cfs/klemming/projects/supr/sllstore2017078/kaczma-workingdir/singularity_sandboxes"
+SANDBOXES_PATH="/cfs/klemming/projects/snic/sllstore2017078/kaczma-workingdir/singularity_sandboxes"
 
 # Default Singularity options
 SINGULARITY_OPTIONS=""
@@ -20,7 +20,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -b  Use custom bind paths for LOCAL_BASE_PATH and CONTAINER_BASE_PATH"
-    echo "  -B  Bind additional custom paths (can be used multiple times)"
+    echo "  -B  Bind additional custom paths (can be used multiple times, or paths can be separate by comma)"
     echo "  -c  Use the --cleanenv option for Singularity"
     echo "  -C  Use the --contain option for Singularity"
     echo "  -h  Display this help message"
@@ -73,6 +73,14 @@ if [ ! -d "${SANDBOXES_PATH}/${SANDBOX_NAME}" ]; then
     echo "Error: Sandbox '${SANDBOX_NAME}' not found in '${SANDBOXES_PATH}'"
     exit 1
 fi
+# Add multiple custom bind paths if provided
+for path in "${CUSTOM_BIND_PATHS[@]}"; do
+    if [ -d "$path" ]; then
+        SINGULARITY_OPTIONS+=" --bind ${path}:${path}"
+    else
+        echo "Warning: Skipping bind path '${path}' (not found)."
+    fi
+done
 
 # Determine the bind path and working directory
 if [ "$USE_CUSTOM_PATHS" = true ]; then
@@ -85,16 +93,8 @@ else
     CONTAINER_DIR="${PWD}"
 fi
 
-# Add multiple custom bind paths if provided
-for path in "${CUSTOM_BIND_PATHS[@]}"; do
-    if [ -d "$path" ]; then
-        SINGULARITY_OPTIONS+=" --bind ${path}:${path}"
-    else
-        echo "Warning: Skipping bind path '${path}' (not found)."
-    fi
-done
+# Special handling for bcl-convert
 
-# Special handling for bcl-convertsingularity build --fakeroot lolcow.sif lolcow.def
 if [[ "$COMMAND" == bcl-convert* ]]; then
     # Ensure a writable directory is available for logs
     mkdir -p "$LOG_DIR"

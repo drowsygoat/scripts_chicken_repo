@@ -7,11 +7,11 @@
 # MODULE PARAMETERS
 RUN_COMMAND="run_shell_command.sh"
 JOB_NAME="count_arc"
-PARTITION="shared"
+PARTITION="main"
 NODES=1
-TIME="3-10:05:00"
+TIME="23:59:00"
 TASKS=1
-CPUS=30
+CPUS=1
 DRY="no"
 
 ALL_LIBS="/cfs/klemming/projects/snic/sllstore2017078/lech/RR/scAnalysis/single_cell_gal7b/libraries/cumulative_libraries.csv"

@@ -8,8 +8,8 @@ NODES=1
 TIME="23:05:00"
 TASKS=1
 CPUS=30
-MODULES="singularity"
-DRY=${2:-no}
+MODULES="PDC singularity"
+DRY=${2:-with_eval}
 
 if [ "$DRY" != "no" ]; then
     echo "Running in $DRY mode..."

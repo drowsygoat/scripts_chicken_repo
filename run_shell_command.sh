@@ -2,16 +2,41 @@
 
 # Script to setup and submit a SLURM job with custom job settings and user input.
 
+# Define SLURM history directory
+SLURM_HISTORY="/cfs/klemming/projects/snic/sllstore2017078/${USER}-workingdir/slurm_history"
+
 source /cfs/klemming/projects/snic/sllstore2017078/kaczma-workingdir/RR/scAnalysis/scripts_chicken_repo/helpers_shell.sh
 
-# User email and compute account settings
-COMPUTE_ACCOUNT=${COMPUTE_ACCOUNT}  # Compute account variable
+# Check if COMPUTE_ACCOUNT is set
+if [[ -z "$COMPUTE_ACCOUNT" ]]; then
+    echo "Error: COMPUTE_ACCOUNT is not defined." >&2
+    exit 1
+fi
+
+# Check if USER_E_MAIL is set
+if [[ -z "$USER_E_MAIL" ]]; then
+    echo "Error: USER_E_MAIL is not defined." >&2
+    exit 1
+fi
+
+# Check if SLURM history directory exists, if not, create it
+if [[ ! -d "$SLURM_HISTORY" ]]; then
+    echo "Creating SLURM history directory: $SLURM_HISTORY"
+    mkdir -p "$SLURM_HISTORY"
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to create SLURM history directory!" >&2
+        exit 1
+    fi
+fi
+
+# Output success message (optional)
+echo "SLURM history directory is set to: $SLURM_HISTORY"
 
 # Capture the current timestamp
 # TIMESTAMP=$(TIMESTAMP:-$(date +%Y%m%d_%H%M%S))
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Clear any previous settings for these variables
+# Clear any previous settings for these variables / probably not needeed, but does not hurt
 unset TASKS JOB_TIME PARTITION CPUS NODES MEMORY DRY_RUN
 
 # Default values for job settings  
@@ -26,38 +51,47 @@ DRY_RUN="slurm"
 
 function show_help() {
     echo ""
-    echo "Usage: run_shell_command.sh [options] -- '[command]'"
+    echo "${BRIGHT_CYAN}Usage:${NC} ${YELLOW}run_shell_command.sh [options] -- '[command]'${NC}"
     echo ""
-    echo "Options:"
-    echo "  -J, --job-name         Specify the job name (string)"
-    echo "  -n, --ntasks           Set the number of tasks (integer)"
-    echo "  -m, --ntasks-per-node  Set the number of tasks per node (integer)"
-    echo "  -t, --time             Specify the job time"
-    echo "                         - Format: [D-HH:MM:SS] (e.g., 1-12:30:00 for 1 day, 12 hours, 30 minutes)"
-    echo "                         - If given as an integer (e.g., 5), it is treated as hours and converted"
-    echo "                           (e.g., '5' → '0-05:00:00', '30' → '1-06:00:00')"
-    echo "  -p, --partition        Partition to run the job on (string)"
-    echo "                         Options: core, node, shared, long, main, memory, devel"
-    echo "  -N, --nodes            Specify the number of nodes (integer)"
-    echo "  -i, --interactive      Run the job in interactive mode (no arguments)"
-    echo "  -c, --cpus              Specify the number of CPUs (integer)"
-    echo "  -M, --memory           Set the memory allocation for SLURM (e.g., 8G, 32G)"
-    echo "  -o, --modules          List of modules to load (comma-separated, e.g., 'python,gcc')"
-    echo "  -a, --array            Define job array specification (e.g., '1-10%2')"
-    echo "  -d, --dry-run          Enable dry run mode"
-    echo "                         Options: dry, with_eval, slurm"
-    echo "  -h, --help             Display this help message and exit"
+    echo "${BRIGHT_CYAN}Options:${NC}"
+    echo "  ${BRIGHT_YELLOW}-J, --job-name${NC}        ${WHITE}[string]   Specify the job name (default: unnamed_job)${NC}"
+    echo "  ${BRIGHT_YELLOW}-n, --ntasks${NC}          ${WHITE}[integer]  Set the number of tasks${NC}"
+    echo "  ${BRIGHT_YELLOW}-m, --ntasks-per-node${NC} ${WHITE}[integer]  Set the number of tasks per node${NC}"
+    echo "  ${BRIGHT_YELLOW}-t, --time${NC}            ${WHITE}[D-HH:MM:SS or integer]  Specify the job time${NC}"
+    echo "                         - ${GREEN}Format:${NC} ${YELLOW}[D-HH:MM:SS]${NC} (e.g., ${YELLOW}1-12:30:00${NC} for 1 day, 12 hours, 30 minutes)"
+    echo "                         - ${GREEN}If given as an integer (e.g., 5), it is treated as hours and converted${NC}"
+    echo "                           (e.g., ${YELLOW}'5' → '0-05:00:00'${NC}, ${YELLOW}'30' → '1-06:00:00'${NC})"
+    echo "  ${BRIGHT_YELLOW}-p, --partition${NC}       ${WHITE}[string]   Partition to run the job on${NC}"
+    echo "                         ${GREEN}Options:${NC} ${YELLOW}core, node, shared, long, main, memory, devel${NC}"
+    echo "  ${BRIGHT_YELLOW}-N, --nodes${NC}           ${WHITE}[integer]  Specify the number of nodes${NC}"
+    echo "  ${BRIGHT_YELLOW}-i, --interactive${NC}     ${WHITE}           Run the job in interactive mode.${NC}"
+    echo "  ${BRIGHT_YELLOW}-c, --cpus${NC}            ${WHITE}[integer]  Specify the number of CPUs${NC}"
+    echo "  ${BRIGHT_YELLOW}-M, --memory${NC}          ${WHITE}[string]   Set the memory allocation for SLURM (e.g., ${YELLOW}8G, 32G${NC})${NC}"
+    echo "  ${BRIGHT_YELLOW}-o, --modules${NC}         ${WHITE}[string]   List of modules to load (comma-separated, e.g., '${YELLOW}python,gcc${NC}')${NC}"
+    echo "                         - ${GREEN}If not provided, modules will be loaded from '~/.temp_modules'${NC}"
+    echo "  ${BRIGHT_YELLOW}-d, --dry-run${NC}         ${WHITE}[string]   Enable dry run mode${NC}"
+    echo "                         ${GREEN}Options:${NC}"
+    echo "                          ${YELLOW}dry${NC}       : ${WHITE}Prints the command without executing it.${NC}"
+    echo "                          ${YELLOW}with_eval${NC} : ${WHITE}Executes the command in the current shell (ignoring SLURM-specific options).${NC}"
+    echo "                          ${YELLOW}slurm${NC}     : ${WHITE}Executes the command with SLURM.${NC}"
+    echo "  ${BRIGHT_YELLOW}-h, --help${NC}            ${WHITE}           Display this help message and exit${NC}"
     echo ""
-    echo "Notes:"
-    echo "  - The '[command]' should be enclosed in quotes and placed after '--'."
-    echo "  - Dry run options:"
-    echo "      dry       : Prints the command without executing it."
-    echo "      with_eval : Executes the command in current shell."
-    echo "      slurm     : Executes the command with slurm."
+    echo "${BRIGHT_CYAN}Notes:${NC}"
+    echo "  - ${WHITE}The '[command]' should be enclosed in quotes and placed after '--'.${NC}"
+    echo "  - ${WHITE}If '--modules' is not specified, the script will attempt to source '~/.temp_modules'.${NC}"
+    echo "  - ${WHITE}Dry run modes allow different execution levels without running the full command.${NC}"
     echo ""
+
+    echo "${BRIGHT_CYAN}Example 1 (very simple): Run a test commands with pipe using SLURM with default settings:${NC}"
+    echo "  ${YELLOW}run_shell_command.sh -- 'echo "This really can be any command" | grep really'${NC}"
+    echo ""
+
+    echo "${BRIGHT_CYAN}Example 2: Run an R script with SLURM job submission:${NC}"
+    echo "  ${YELLOW}run_shell_command.sh -J R_analysis -p long -n 1 -N 1 -c 4 -M 16G -t 2-00:00:00 -o 'PDC,R/4.4.1' -- 'Rscript my_analysis.R <arg1 arg2 ...>'${NC}"
+    echo ""
+
     exit 0
 }
-
 
 if [ $# -eq 0 ]; then
     echo "No arguments provided. Displaying help:"
@@ -66,7 +100,7 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-# Parse command-line options
+# Parse command-line options - works much better than getopts :)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -J|--job-name)
@@ -131,7 +165,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Display parsed options (for debugging purposes)
+# Display parsed options for debugging
 # echo "Job Name: $JOB_NAME"
 # echo "Number of Tasks: $NTASKS"
 # echo "Tasks per Node: $NTASKS_PER_NODE"
@@ -152,7 +186,7 @@ ARGUMENTS="$@"
 JOB_NAME=${JOB_NAME:-$(echo $ARGUMENTS | awk '{print $1}')}
 
 # Set default job time based on the partition
-if [[ $PARTITION =~ (core|node|shared|long|main|memory|devel) ]]; then
+if [[ $PARTITION =~ (core|node|shared|long|main|memory) ]]; then
     JOB_TIME=${JOB_TIME:-23:59:00}
 else 
     JOB_TIME=${JOB_TIME:-00:10:00} 
@@ -165,7 +199,7 @@ else
     JOB_TIME=${JOB_TIME:-00:10:00} 
 fi
 
-# Function to check if JOB_TIME is in d-HH:MM:SS format
+# Function to check if JOB_TIME is in D-HH:MM:SS format
 is_valid_format() {
     [[ "$1" =~ ^([0-9]+-)?([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]]
 }
