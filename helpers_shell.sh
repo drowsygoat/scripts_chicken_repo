@@ -44,7 +44,7 @@ function get_module_file_path() {
         fi
     done
 
-    echo "Error: No matching file found in specified directories." >&2
+    echo -e "Error: No valid module file found in ${HOME}. The file should contain the line: \"module load x y z\" where x y z are the module names." >&2
     return 1
 }
 
