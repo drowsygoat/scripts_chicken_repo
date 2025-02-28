@@ -31,6 +31,6 @@ test_performance <- function(n, repetitions = 3) {
 }
 
 # Example usage:
-n <- 635234937
+n <- 6352349375656789
 performance <- test_performance(n)
 print(performance)
