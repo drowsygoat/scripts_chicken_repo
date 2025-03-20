@@ -9,8 +9,6 @@ ID01<- Seurat::Read10X_h5(
 sdata.ID01 <- CreateSeuratObject(ID01, project = "ID01")
 
 ###Actual Loop###
-library(Seurat)
-
 base_path <- "/cfs/klemming/projects/supr/sllstore2017078/kaczma-workingdir/RR/scAnalysis/single_cell_gal7b/count_arc_cb"
 seurat_objects <- list()
 for (i in 1:20) {
@@ -48,7 +46,6 @@ nrow(seurat_objects$ID01)
 #ID19: 146112   #ID20: 159476 ###MEAN = 
 ####################################
 ###Seurat Object workable via $ID###
-# Assuming 'seurat_objects' is a list of all your Seurat objects (ID01, ID02, ..., ID20)
 seurat_objects <- list(seurat_objects[["ID01"]], seurat_objects[["ID02"]], 
                        seurat_objects[["ID03"]], seurat_objects[["ID04"]], 
                        seurat_objects[["ID05"]], seurat_objects[["ID06"]], 
@@ -62,17 +59,26 @@ seurat_objects <- list(seurat_objects[["ID01"]], seurat_objects[["ID02"]],
 
 ########################
 ###Merged & Filtered####
-#OLD = merged_seurat_object
 merged_seurat <- Reduce(function(x, y) merge(x, y), seurat_objects)
 dim(merged_seurat) # 196600
+object.size(merged_seurat) #15515842944 bytes = 15.5 GB!
+
+SeuratFilt <- subset(merged_seurat, subset = nFeature_RNA > 1000)
+#SeuratFilt <- subset(merged_seurat, subset = nFeature_RNA < 40000), only use for graphs
+dim(SeuratFilt)    # 194535
+table(SeuratFilt$orig.ident)
+#ID01  ID02  ID03  ID04  ID05  ID06  ID07  ID08  ID09  ID10  ID11  ID12  ID13 
+#3155  6694  5401  5692  9317 10735 18297 20000 18675 16333 13335 10187  7654 
+#ID15  ID16  ID17  ID18  ID19  ID20 
+#13163  8324  7257  8536  4440  9384
 
 ###########################
-SeuratFilt <- subset(merged_seurat_object, subset = nFeature_RNA > 1000)
-SeuratFilt <- subset(merged_seurat_object, subset = nFeature_RNA < 40000)
-dim(SeuratFilt)    # 194535
+#######GRAPHS BELOW########
+###########################
 featsF <- c("nFeature_RNA")
 VPlotF <- VlnPlot(SeuratFilt, group.by = "orig.ident", split.by = "orig.ident",features = featsF, pt.size = 0.1, ncol = 1)
 ggsave("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/VPlotF.jpeg")
+
 ############
 ############
 SeuratFiltc <- subset(merged_seurat_object, subset = nCount_RNA < 75000)
@@ -80,23 +86,44 @@ dim(SeuratFiltc)   # 196381
 featsC <- c("nCount_RNA")
 VPlotC <- VlnPlot(SeuratFiltc, group.by = "orig.ident", split.by = "orig.ident",features = featsC, pt.size = 0.1, ncol = 1)
 ggsave("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/VPlotC.jpeg")
+
 ############
-############
+############ plot the different QC-measures as scatter plots
 SeuratFiltf <- subset(SeuratFilt, subset = nCount_RNA < 75000)
 FPlot <- FeatureScatter(SeuratFiltf, "nCount_RNA", "nFeature_RNA", group.by = "orig.ident", pt.size = .5)
 ggsave("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/FPlot.jpeg")
-############
+
+############ plot the percentage of counts per gene
 ############ WIP BELOW
 C <- SeuratFilt[["RNA"]]$counts
+dim(C)
 C@x <- C@x / rep.int(colSums(C), diff(C@p)) * 100
 most_expressed <- order(Matrix::rowSums(C), decreasing = T)[20:1]
-BPlot <- boxplot(as.matrix(t(C[most_expressed, ])),
+# Create a jpeg file for saving the plot
+jpeg("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/BPlot.jpeg")#, width = 15, height = 10, res = 300)
+
+par(mar = c(5, 8, 2, 1))  # Reduce margins
+
+# Plot the boxplot MAKE Y AXIS VISABLE!
+boxplot(as.matrix(t(C[most_expressed, ])),
     cex = 0.1, las = 1, xlab = "Percent counts per cell",
-    col = (scales::hue_pal())(20)[20:1], horizontal = TRUE)
-ggsave("/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/BPlot.jpeg")
+    col = (scales::hue_pal())(20)[20:1], horizontal = TRUE,
+    cex.axis = 0.8, outline = FALSE)
+
+# Close the jpeg device to save the file
+dev.off()
 
 #######################
-###NORMALIZATION######
+######Ribo & Mito######
 #######################
+Metadata <- alldata[[]]
+head(Metadata)
+# Ribosomal
+alldata <- PercentageFeatureSet(SeuratFilt, "^RP[SL]", col.name = "percent_ribo")
+mean(alldata$percent_ribo) #0.517%
+# Mitochondrial
+alldata <- PercentageFeatureSet(merged_seurat, "^MT", col.name = "percent_mito")
 
+mean(alldata$percent_mito) 
+head(alldata)
 
