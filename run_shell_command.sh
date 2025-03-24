@@ -3,7 +3,9 @@
 # Script to setup and submit a SLURM job with custom job settings and user input.
 
 # Define SLURM history directory
-SLURM_HISTORY="/cfs/klemming/projects/snic/sllstore2017078/${USER}-workingdir/slurm_history"
+# SLURM_HISTORY="/cfs/klemming/projects/snic/sllstore2017078/${USER}-workingdir/slurm_history"
+
+SLURM_HISTORY="$(pwd)/slurm_history"
 
 source /cfs/klemming/projects/snic/sllstore2017078/kaczma-workingdir/RR/scAnalysis/scripts_chicken_repo/helpers_shell.sh
 
@@ -55,21 +57,23 @@ function show_help() {
     echo ""
     echo "${BRIGHT_CYAN}Options:${NC}"
     echo "  ${BRIGHT_YELLOW}-J, --job-name${NC}        ${WHITE}[string]   Specify the job name (default: unnamed_job)${NC}"
-    echo "  ${BRIGHT_YELLOW}-n, --ntasks${NC}          ${WHITE}[integer]  Set the number of tasks${NC}"
-    echo "  ${BRIGHT_YELLOW}-m, --ntasks-per-node${NC} ${WHITE}[integer]  Set the number of tasks per node${NC}"
-    echo "  ${BRIGHT_YELLOW}-t, --time${NC}            ${WHITE}[D-HH:MM:SS or integer]  Specify the job time${NC}"
+    echo "  ${BRIGHT_YELLOW}-n, --ntasks${NC}          ${WHITE}[integer]  Set the number of tasks (default: 1)${NC}"
+    echo "  ${BRIGHT_YELLOW}-m, --ntasks-per-node${NC} ${WHITE}[integer]  Set the number of tasks per node (default: 1)${NC}"
+    echo "  ${BRIGHT_YELLOW}-t, --time${NC}            ${WHITE}[D-HH:MM:SS or integer]  Specify the job time (default: 24 hrs)${NC}"
     echo "                         - ${GREEN}Format:${NC} ${YELLOW}[D-HH:MM:SS]${NC} (e.g., ${YELLOW}1-12:30:00${NC} for 1 day, 12 hours, 30 minutes)"
     echo "                         - ${GREEN}If given as an integer (e.g., 5), it is treated as hours and converted${NC}"
     echo "                           (e.g., ${YELLOW}'5' → '0-05:00:00'${NC}, ${YELLOW}'30' → '1-06:00:00'${NC})"
-    echo "  ${BRIGHT_YELLOW}-p, --partition${NC}       ${WHITE}[string]   Partition to run the job on${NC}"
+    echo "  ${BRIGHT_YELLOW}-p, --partition${NC}       ${WHITE}[string]   Partition to run the job on (default: shared)${NC}"
     echo "                         ${GREEN}Options:${NC} ${YELLOW}core, node, shared, long, main, memory, devel${NC}"
-    echo "  ${BRIGHT_YELLOW}-N, --nodes${NC}           ${WHITE}[integer]  Specify the number of nodes${NC}"
+    echo "  ${BRIGHT_YELLOW}-N, --nodes${NC}           ${WHITE}[integer]  Specify the number of nodes (default: 1)${NC}"
     echo "  ${BRIGHT_YELLOW}-i, --interactive${NC}     ${WHITE}           Run the job in interactive mode.${NC}"
-    echo "  ${BRIGHT_YELLOW}-c, --cpus${NC}            ${WHITE}[integer]  Specify the number of CPUs${NC}"
+    echo "  ${BRIGHT_YELLOW}-c, --cpus${NC}            ${WHITE}[integer]  Specify the number of CPUs (default: 1)${NC}"
+    echo "                         - ${GREEN}This also determines the memory, so even if your job is single-threaded,"
+    echo "                           ${GREEN}consider how much it needs to load to memory at once (1cpu == about 1.8GB of RAM).${NC}"
     echo "  ${BRIGHT_YELLOW}-M, --memory${NC}          ${WHITE}[string]   Set the memory allocation for SLURM (e.g., ${YELLOW}8G, 32G${NC})${NC}"
     echo "  ${BRIGHT_YELLOW}-o, --modules${NC}         ${WHITE}[string]   List of modules to load (comma-separated, e.g., '${YELLOW}python,gcc${NC}')${NC}"
     echo "                         - ${GREEN}If not provided, modules will be loaded from '~/.temp_modules'${NC}"
-    echo "  ${BRIGHT_YELLOW}-d, --dry-run${NC}         ${WHITE}[string]   Enable dry run mode${NC}"
+    echo "  ${BRIGHT_YELLOW}-d, --dry-run${NC}         ${WHITE}[string]   Enable dry run mode (default: slurm)${NC}"
     echo "                         ${GREEN}Options:${NC}"
     echo "                          ${YELLOW}dry${NC}       : ${WHITE}Prints the command without executing it.${NC}"
     echo "                          ${YELLOW}with_eval${NC} : ${WHITE}Executes the command in the current shell (ignoring SLURM-specific options).${NC}"
@@ -192,12 +196,6 @@ else
     JOB_TIME=${JOB_TIME:-00:10:00} 
 fi
 
-# Set default job time based on the partition
-if [[ $PARTITION =~ (core|node|shared|long|main|memory|devel) ]]; then
-    JOB_TIME=${JOB_TIME:-23:59:00}
-else 
-    JOB_TIME=${JOB_TIME:-00:10:00} 
-fi
 
 # Function to check if JOB_TIME is in D-HH:MM:SS format
 is_valid_format() {
@@ -281,7 +279,7 @@ cat <<EOF > "$SBATCH_SCRIPT"
 #SBATCH -N ${NODES}
 #SBATCH -c ${CPUS}
 #SBATCH --mail-user=${USER_E_MAIL:-lecka@liu.se}
-#SBATCH --mail-type=BEGIN
+#SBATCH --mail-type=ALL
 EOF
 
 if [ -n "${MEMORY:-}" ]; then
@@ -296,23 +294,36 @@ if [ -n "${NTASKS_PER_NODE:-}" ]; then
   echo "#SBATCH --ntasks-per-node ${NTASKS_PER_NODE}" >> "$SBATCH_SCRIPT"
 fi
 
+
+# Colors for pretty output
+BRIGHT_MAGENTA='\033[1;35m'
+NC='\033[0m' # No Color
+
+# Safely expand ARGUMENTS
+expanded_command=$(echo "$ARGUMENTS" | envsubst)
+
+# Log the expanded command
+mkdir -p "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}"
+echo -e "${BRIGHT_MAGENTA}\nRunning:\n${NC}"
+echo -e "$expanded_command" | tee "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/command.log"
+
+# Safely expand variables into job_steps.sh
+echo "$ARGUMENTS" | envsubst > ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/job_steps.sh
+chmod +x ${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/job_steps.sh
+
+# Generate SLURM job script
 cat <<EOF >> "$SBATCH_SCRIPT"
 load_modules
 echo "Job \${SLURM_JOB_ID} for job name \${JOB_NAME} is running..."
 start=\$(date +%s)
-eval "\$ARGUMENTS"
+
+${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/job_steps.sh
+
 echo "Job \${SLURM_JOB_ID} for job name \${JOB_NAME} finished."
 end=\$(date +%s)
 runtime=\$((end-start))
 echo "Runtime: \$((runtime/3600)) hours and \$(((runtime%3600)/60)) minutes."
 EOF
-
-# Log the expanded command
-expanded_command=$(eval echo "$ARGUMENTS")
-# echo -e "\nRunning:"
-echo ${BRIGHT_MAGENTA}
-echo -e "$expanded_command" | tee "${SLURM_HISTORY}/${JOB_NAME}_${TIMESTAMP}/command.log"
-echo ${NC}
 
 if [[ $INTERACTIVE == 1 ]]; then
   countdown 3
