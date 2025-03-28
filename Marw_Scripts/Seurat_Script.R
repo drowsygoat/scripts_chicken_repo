@@ -1,17 +1,15 @@
 # Load required libraries
-suppressPackageStartupMessages({
-  library("Seurat")
+{library("Seurat")
   library("hdf5r")
   library("DoubletFinder")
   library("tidyverse")
   library("Signac")
   library("GenomicRanges")
   library("scDblFinder")
-  library("patchwork")
-})
+  library("patchwork")}
 
 # Define base directory and sample IDs
-base_dir <- "/cfs/klemming/projects/supr/sllstore2017078/kaczma-workingdir/RR/scAnalysis/single_cell_gal7b/count_arc_cb"
+base_dir <- "/cfs/klemming/projects/supr/sllstore2017078/kaczma-workingdir/RR/scAnalysis/single_cell_gal7b/count_arc_cb/"
 sample_ids <- sprintf("ID%02d", c(1:13, 15:20))  # Excluding ID14
 
 gtf_file <- "/cfs/klemming/projects/supr/sllstore2017078/marwe445-workingdir/R/WorkdirRAT/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.112.gtf.gz"
@@ -89,8 +87,8 @@ for (sample_id in sample_ids) {
   }
   
   # Store Seurat object for later processing
-  datasets[[sample_id]] <- seurat_obj
-}
+  datasets[[sample_id]] <- seurat_obj}
+
 ###############
 # Apply quality control filtering and process the data for each Seurat object
 for (sample_id in names(datasets)) {
@@ -106,7 +104,7 @@ for (sample_id in names(datasets)) {
     if ("nFeature_RNA" %in% colnames(seurat_obj@meta.data) &&
         "nCount_ATAC" %in% colnames(seurat_obj@meta.data)) {
       cells_to_keep <- which(
-        seurat_obj$nFeature_RNA >= min_nFeature_RNA &
+        seurat_obj$nFeature_RNA >= min_nFeature_RNA & 
         seurat_obj$nCount_ATAC >= min_counts_atac)
       if (length(cells_to_keep) == 0) {
         if (remove_failed_samples) {
@@ -141,12 +139,9 @@ for (sample_id in names(datasets)) {
     reduction.name = "tsne",
     reduction.key = "tSNE_")
   
-  # Save results for each sample
-  saveRDS(data.fix, file.path(path_results, paste0("seurat_", sample_id, "_qc.rds")))
-  
   # Store processed Seurat object for later use
-  datasets[[sample_id]] <- data.fix
-}
+  datasets[[sample_id]] <- data.fix}
+
 ###############
 # DoubletFinder for each sample
 for (sample_id in names(datasets)) {
@@ -160,19 +155,74 @@ for (sample_id in names(datasets)) {
   DF.name <- colnames(data.fix2@meta.data)[grepl("DF.classification", colnames(data.fix2@meta.data))]
   data.fix2 <- data.fix2[, data.fix2@meta.data[, DF.name] == "Singlet"]
   
-  # Save results after doublet removal
-  saveRDS(data.fix2, file.path(path_results, paste0("seurat_", sample_id, "_df_rds.rds")))
-  
   # Update list with filtered object
-  datasets[[sample_id]] <- data.fix2
-}
+  datasets[[sample_id]] <- data.fix2}
 
-# Merging all datasets (if necessary)
+###############
+# Merge all datasets after processing
 if (length(datasets) > 1) {
+  # Step 1: Merge the datasets
   merged_data <- Reduce(function(x, y) merge(x, y, add.cell.ids = c("Sample1", "Sample2")), datasets)
-  # Save the merged object
-  saveRDS(merged_data, file.path(path_results, "merged_seurat_object.rds"))
-  message("Merging complete. Saved merged Seurat object.")
+  
+  # Step 2: Check if PCA is present in merged data, if not, run PCA
+  if (!"pca" %in% names(merged_data@reductions)) {
+    message("PCA not found in merged data. Running PCA...")
+    merged_data <- RunPCA(merged_data, verbose = FALSE)
+  }
+
+  # Step 3: Integrate layers using CCA (after all samples are processed and QC is done)
+  merged_data <- IntegrateLayers(object = merged_data, method = "CCA", orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
+
+  # Step 4: Re-join layers after integration
+  merged_data[["RNA"]] <- JoinLayers(merged_data[["RNA"]])
+
+  # Step 5: Perform clustering on integrated data
+  merged_data <- FindNeighbors(merged_data, reduction = "integrated.cca", dims = 1:30)
+  merged_data <- FindClusters(merged_data, resolution = 1)
+
+  # Step 6: Save the merged and integrated Seurat object
+  saveRDS(merged_data, file.path(path_results, "merged_seurat_integrated_object.rds"))
+  message("Integration and clustering complete. Saved merged Seurat object.")
 } else {
   message("No samples to merge.")
 }
+
+
+
+
+
+
+
+
+
+#Check if PCA worked
+for (sample_id in names(datasets)) {
+  seurat_obj <- datasets[[sample_id]]
+  
+  # Check if PCA is available
+  if (!"pca" %in% names(seurat_obj@reductions)) {
+    message("PCA not found in Seurat object for sample: ", sample_id)
+  } else {
+    message("PCA is available for sample: ", sample_id)
+  }}
+
+###############
+# Merge all datasets after processing
+if (length(datasets) > 1) {
+  merged_data <- Reduce(function(x, y) merge(x, y, add.cell.ids = c("Sample1", "Sample2")), datasets)
+  
+  # Integrate Layers using CCA (after all samples are processed and QC is done)
+  merged_data <- IntegrateLayers(object = merged_data, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
+  
+  # Re-join layers after integration
+  merged_data[["RNA"]] <- JoinLayers(merged_data[["RNA"]])
+
+  # Perform clustering on integrated data
+  merged_data <- FindNeighbors(merged_data, reduction = "integrated.cca", dims = 1:30)
+  merged_data <- FindClusters(merged_data, resolution = 1)
+
+  # Save the merged and integrated Seurat object
+  saveRDS(merged_data, file.path(path_results, "merged_seurat_integrated_object.rds"))
+  message("Integration and clustering complete. Saved merged Seurat object.")
+} else {
+  message("No samples to merge.")}
