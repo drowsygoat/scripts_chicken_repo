@@ -1,12 +1,13 @@
 # Load required libraries
-{library("Seurat")
-  library("hdf5r")
-  library("DoubletFinder")
-  library("tidyverse")
-  library("Signac")
-  library("GenomicRanges")
-  library("scDblFinder")
-  library("patchwork")}
+library("Seurat")
+library("hdf5r")
+library("DoubletFinder")
+library("tidyverse")
+library("Signac")
+library("GenomicRanges")
+library("scDblFinder")
+library("patchwork")
+library("rtracklayer")
 
 # Define base directory and sample IDs
 base_dir <- "/cfs/klemming/projects/supr/sllstore2017078/kaczma-workingdir/RR/scAnalysis/single_cell_gal7b/count_arc_cb/"
@@ -57,7 +58,7 @@ for (sample_id in sample_ids) {
   mcols(gene.coords) <- mcols(gene.coords)[, colSums(!is.na(mcols(gene.coords))) > 0]
   
   # Step 6: Add ATAC assay (if desired and file exists)
-  include_ATAC <- TRUE  # Set according to your need
+  include_ATAC <- FALSE  # Set according to your need
   
   if (include_ATAC && file.exists(atac_fragments)) {
     message("Adding ATAC assay for sample: ", sample_id)
@@ -85,9 +86,25 @@ for (sample_id in sample_ids) {
   } else if (include_metadata) {
     warning("Metadata file not found for sample ", sample_id, ": ", metadata_path)
   }
+
+  # Step 8: Subset 10% of random cells from each sample
+  if (ncol(seurat_obj) > 1000) {
+    message("Subsetting 10% of random cells for sample: ", sample_id)
+    set.seed(123)  # Set a seed for reproducibility
+    num_cells_to_sample <- round(0.1 * ncol(seurat_obj))  # 10% of total cells
+    random_cells <- sample(colnames(seurat_obj), num_cells_to_sample)
+    seurat_obj <- subset(seurat_obj, cells = random_cells)
+    
+    # Ensure that dimnames are correctly assigned after subsetting
+    rownames(seurat_obj) <- rownames(rna_counts)  # Restore feature names
+    colnames(seurat_obj) <- random_cells  # Restore cell names
+  } else {
+    message("Sample has less than 1000 cells. Using all cells for sample: ", sample_id)
+  }
   
   # Store Seurat object for later processing
-  datasets[[sample_id]] <- seurat_obj}
+  datasets[[sample_id]] <- seurat_obj
+}
 
 ###############
 # Apply quality control filtering and process the data for each Seurat object
@@ -124,105 +141,65 @@ for (sample_id in names(datasets)) {
   
   # Process data (e.g., normalization, feature selection, scaling, PCA, tSNE)
   seurat_obj <- RenameCells(seurat_obj, add.cell.id = sample_id)
-  alldata <- PercentageFeatureSet(seurat_obj, "^RP[SL]", col.name = "percent_ribo")
-  Bothdata <- PercentageFeatureSet(seurat_obj, "^MT-|^ND1|^ND3|^ND4|^ND5|^ND6|^ATP6$|^ATP8$|^CYTB|^COII|^COX3", col.name = "percent_mito")
-  data.filt <- subset(Bothdata, percent_mito < 10)
+  seurat_obj <- PercentageFeatureSet(seurat_obj, "^RP[SL]", col.name = "percent_ribo")
+  seurat_obj <- PercentageFeatureSet(seurat_obj, "^MT-|^ND1|^ND3|^ND4|^ND5|^ND6|^ATP6$|^ATP8$|^CYTB|^COII|^COX3", col.name = "percent_mito")
+  data.filt <- subset(seurat_obj, percent_mito < 10)
   
-  # Normalize data and fix it
+  # Normalize data and fix it later
   data.filt <- NormalizeData(data.filt)
   data.fix <- FindVariableFeatures(data.filt, selection.method = "vst", nfeatures = 2000)
   data.fix <- ScaleData(data.fix, vars.to.regress = c("nFeature_RNA", "percent_mito"), verbose = F)
-  data.fix <- RunPCA(data.fix, verbose = F, npcs = 20)
-  data.fix <- RunTSNE(
-    data.fix,
-    reduction = "pca",
-    reduction.name = "tsne",
-    reduction.key = "tSNE_")
+  #data.fix <- RunPCA(data.fix, verbose = F, npcs = 20)
+  #data.fix <- RunTSNE(
+   # data.fix,
+   # reduction = "pca",
+   # reduction.name = "tsne",
+   # reduction.key = "tSNE_")
   
   # Store processed Seurat object for later use
-  datasets[[sample_id]] <- data.fix}
+  datasets[[sample_id]] <- data.fix
+}
 
 ###############
 # DoubletFinder for each sample
 for (sample_id in names(datasets)) {
   data.fix <- datasets[[sample_id]]
   
+  # Check if PCA is available, and if not, run PCA
+  if (!"pca" %in% names(data.fix@reductions)) {
+    message("PCA not found for sample ", sample_id, ". Running PCA...")
+    data.fix <- RunPCA(data.fix, verbose = FALSE, npcs = 20)
+  }
+
   # DoubletFinder
   nExp <- round(ncol(data.fix) * 0.015)  # Set to 0.015 percent of total cells
-  data.fix2 <- doubletFinder(data.fix, pN = 0.25, pK = 0.09, nExp = nExp, PCs = 1:10)
+  data.fix2 <- DoubletFinder::doubletFinder(data.fix, pN = 0.25, pK = 0.09, nExp = nExp, PCs = 1:10)
   
   # Name the DF prediction column
   DF.name <- colnames(data.fix2@meta.data)[grepl("DF.classification", colnames(data.fix2@meta.data))]
   data.fix2 <- data.fix2[, data.fix2@meta.data[, DF.name] == "Singlet"]
   
   # Update list with filtered object
-  datasets[[sample_id]] <- data.fix2}
+  datasets[[sample_id]] <- data.fix2
+}
 
-###############
+############### 
 # Merge all datasets after processing
 if (length(datasets) > 1) {
-  # Step 1: Merge the datasets
-  merged_data <- Reduce(function(x, y) merge(x, y, add.cell.ids = c("Sample1", "Sample2")), datasets)
-  
-  # Step 2: Check if PCA is present in merged data, if not, run PCA
-  if (!"pca" %in% names(merged_data@reductions)) {
-    message("PCA not found in merged data. Running PCA...")
-    merged_data <- RunPCA(merged_data, verbose = FALSE)
+  # Step 1: Rename the cells to ensure unique identifiers before merging
+  for (i in 1:length(datasets)) {
+    datasets[[i]] <- RenameCells(datasets[[i]], add.cell.id = paste("Sample_", i, sep = ""))
   }
-
-  # Step 3: Integrate layers using CCA (after all samples are processed and QC is done)
-  merged_data <- IntegrateLayers(object = merged_data, method = "CCA", orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
-
-  # Step 4: Re-join layers after integration
-  merged_data[["RNA"]] <- JoinLayers(merged_data[["RNA"]])
-
-  # Step 5: Perform clustering on integrated data
-  merged_data <- FindNeighbors(merged_data, reduction = "integrated.cca", dims = 1:30)
-  merged_data <- FindClusters(merged_data, resolution = 1)
+  
+  # Step 2: Identify integration anchors
+  integration_anchors <- FindIntegrationAnchors(object.list = datasets, dims = 1:30, anchor.features = 2000, reduction = "cca")
+  
+  # Step 3: Integrate the datasets using the anchors
+  merged_data <- IntegrateData(anchorset = integration_anchors, dims = 1:30)
 
   # Step 6: Save the merged and integrated Seurat object
-  saveRDS(merged_data, file.path(path_results, "merged_seurat_integrated_object.rds"))
+  saveRDS(merged_data, file.path(path_results, "MSIO2.rds"))
   message("Integration and clustering complete. Saved merged Seurat object.")
 } else {
   message("No samples to merge.")
 }
-
-
-
-
-
-
-
-
-
-#Check if PCA worked
-for (sample_id in names(datasets)) {
-  seurat_obj <- datasets[[sample_id]]
-  
-  # Check if PCA is available
-  if (!"pca" %in% names(seurat_obj@reductions)) {
-    message("PCA not found in Seurat object for sample: ", sample_id)
-  } else {
-    message("PCA is available for sample: ", sample_id)
-  }}
-
-###############
-# Merge all datasets after processing
-if (length(datasets) > 1) {
-  merged_data <- Reduce(function(x, y) merge(x, y, add.cell.ids = c("Sample1", "Sample2")), datasets)
-  
-  # Integrate Layers using CCA (after all samples are processed and QC is done)
-  merged_data <- IntegrateLayers(object = merged_data, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
-  
-  # Re-join layers after integration
-  merged_data[["RNA"]] <- JoinLayers(merged_data[["RNA"]])
-
-  # Perform clustering on integrated data
-  merged_data <- FindNeighbors(merged_data, reduction = "integrated.cca", dims = 1:30)
-  merged_data <- FindClusters(merged_data, resolution = 1)
-
-  # Save the merged and integrated Seurat object
-  saveRDS(merged_data, file.path(path_results, "merged_seurat_integrated_object.rds"))
-  message("Integration and clustering complete. Saved merged Seurat object.")
-} else {
-  message("No samples to merge.")}
